@@ -31,7 +31,7 @@ module.exports = ({debug = false} = {}) => {
 	return {
 		target: 'web',
 		devtool: 'source-map',
-		entry: './src/application.js',
+		entry: './src/main.js',
 		output: {
 			path: path.resolve(__dirname, 'www'),
 			filename: debug ? 'bundle.js' : 'bundle.min.js',
