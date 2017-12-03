@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<canvas id="canvas" width="600" height="400"></canvas>
+<script id="vs_s" type="text/x-glsl">
+attribute vec3 po; //顶点数据源
+attribute vec3 co; //颜色数据源
+uniform mat4 pro; //投射矩阵
+uniform mat4 rot; //旋转矩阵
+uniform mat4 mov; //平移矩阵
+varying vec3 co_v; //co_v管道入口
+void main(){
+  co_v=co; //把co放入co_v管道
+  gl_Position=pro*mov*rot*vec4(po,1.0);
+}
+</script>
+<script id="fs_s" type="text/x-glsl">
+varying lowp vec3 co_v; //co_v管道出口
+void main(){
+  gl_FragColor=vec4(co_v,1);
+}
+</script>
+<script>
+    var webgl,program,fs,vs,tmp,i,j;
+
+    //获取WebGL对象，并制作着色器程序
+    webgl=canvas.getContext("webgl");
+    program=webgl.createProgram();
+    vs=webgl.createShader(webgl.VERTEX_SHADER);
+    fs=webgl.createShader(webgl.FRAGMENT_SHADER);
+    webgl.shaderSource(vs,vs_s.textContent);
+    webgl.shaderSource(fs,fs_s.textContent);
+    webgl.compileShader(vs);
+    webgl.compileShader(fs);
+    webgl.attachShader(program,vs);
+    webgl.attachShader(program,fs);
+    webgl.linkProgram(program);
+    webgl.useProgram(program);
+
+    //数据源相关
+    var po,co,dat,buf;
+
+    //获取接口位置，并开启数组模式
+    po=webgl.getAttribLocation(program,"po");
+    co=webgl.getAttribLocation(program,"co");
+    webgl.enableVertexAttribArray(po);
+    webgl.enableVertexAttribArray(co);
+
+    //指定顶点坐标的数据源
+    dat=new Float32Array([
+        -1,-1,1,  1,-1,1,   1,1,1,  -1,1,1,   //前面
+        -1,-1,-1, 1,-1,-1,  1,1,-1, -1,1,-1,  //后面
+        -1,-1,-1, -1,1,-1,  -1,1,1, -1,-1,1,  //左面
+        1,-1,-1,  1,1,-1,   1,1,1,  1,-1,1,   //右面
+        -1,1,-1,  1,1,-1,   1,1,1,  -1,1,1,   //上面
+        -1,-1,-1, 1,-1,-1,  1,-1,1, -1,-1,1,  //下面
+    ]);
+    buf=webgl.createBuffer();
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,buf);
+    webgl.bufferData(webgl.ARRAY_BUFFER,dat,webgl.STATIC_DRAW);
+    webgl.vertexAttribPointer(po,3,webgl.FLOAT,false,0,0);
+
+    //指定顶点颜色的数据源
+    tmp=[[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1]]; //六种颜色
+    for(dat=[],i=0;i<tmp.length;i++)//每一种颜色的顶点有4个
+        for(j=0;j<4;j++)dat.push.apply(dat,tmp[i]);
+    dat=new Float32Array(dat);
+    buf=webgl.createBuffer();
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,buf);
+    webgl.bufferData(webgl.ARRAY_BUFFER,dat,webgl.STATIC_DRAW);
+    webgl.vertexAttribPointer(co,3,webgl.FLOAT,false,0,0);
+
+    //uniform参数相关
+    var pro,rot,mov;
+
+    //获取uniform们的句柄
+    pro=webgl.getUniformLocation(program,"pro");
+    rot=webgl.getUniformLocation(program,"rot");
+    mov=webgl.getUniformLocation(program,"mov");
+
+    //设置投射矩阵
+    webgl.uniformMatrix4fv(
+        pro,false,(function(a,r,n,f){
+            //参数分别是：视角、区域宽高比、近平面、远平面
+            a=1/Math.tan(a*Math.PI/360);
+            return [
+                a/r,0,0,0, 0,a,0,0, 0,0,-(f+n)/(f-n),-1, 0,0,-2*f*n/(f-n),0
+            ];
+        })(45,canvas.width/canvas.height,1,100)
+    );
+
+    //设置移动矩阵（向z方向移动-10）
+    webgl.uniformMatrix4fv(
+        mov,false,[1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-5,1]
+    );
+
+    //构造索引
+    for(dat=[],i=0;i<24;i+=4)dat.push(i+0,i+1,i+3,i+3,i+2,i+1);
+    dat=new Uint16Array(dat);
+    buf=webgl.createBuffer();
+    webgl.bindBuffer(webgl.ELEMENT_ARRAY_BUFFER,buf);
+    webgl.bufferData(webgl.ELEMENT_ARRAY_BUFFER,dat,webgl.STATIC_DRAW);
+
+    //开启深度测试
+    webgl.enable(webgl.DEPTH_TEST);
+
+    //绘制过程
+    var a=0;
+    setInterval(function(){
+        //设置旋转矩阵
+        a-=0.02;
+        var s=Math.sin(a),c=Math.cos(a);
+        webgl.uniformMatrix4fv(
+            rot,false,[c*c,-s,s*c,0, s*c,c,s*s,0, -s,0,c,0, 0,0,0,1]
+        );
+        //绘制
+        webgl.drawElements(webgl.TRIANGLES,36,webgl.UNSIGNED_SHORT,0);
+    },16);
+</script>
+</body>
+</html>

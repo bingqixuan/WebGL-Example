@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script>
+    //获取WebGL对象
+    var gl = document.getElementById('canvas').getContext("webgl");
+
+    //创建程序（仅仅是创建而已）
+    var program=gl.createProgram();
+
+    var vs,fs,vs_s,fs_s;
+
+    //创建顶点着色器和片段着色器
+    vs=gl.createShader(gl.VERTEX_SHADER);
+    fs=gl.createShader(gl.FRAGMENT_SHADER);
+
+    //着色器程序的源码
+    vs_s="attribute vec4 p;void main(){gl_Position=p;}";
+    fs_s="void main(){gl_FragColor=vec4(1.0,1.0,0.0,1.0);}";
+
+    //把源码添加进着色器
+    gl.shaderSource(vs,vs_s);
+    gl.shaderSource(fs,fs_s);
+
+    //编译着色器
+    gl.compileShader(vs);
+    gl.compileShader(fs);
+
+    //把着色器添加到程序中
+    gl.attachShader(program,vs);
+    gl.attachShader(program,fs);
+
+    //把这两个着色器程序链接成一个完整的程序
+    gl.linkProgram(program);
+
+    //把这个程序放入显存中
+    gl.useProgram(program);
+
+    //定义一个顶点数组，这这里有三个坐标
+    var dat=[-0.5,-0.5,0,1 ,-0.5,0.5,0,1 ,0.5,-0.5,0,1 ,0.5,0.5,0,1];
+
+    //将JavaScript的哈希数组转换为连续的内存数组
+    dat=new Float32Array(dat);
+
+    //在显存中建立一个数据缓冲区
+    var buf=gl.createBuffer();
+
+    //设置这个数据缓冲区为当前操作对象
+    gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+
+    //把内存中的顶点数组复制到当前操作的数据缓冲区中
+    gl.bufferData(gl.ARRAY_BUFFER,dat,gl.STATIC_DRAW);
+
+    //把索引放入显存
+    var index=gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,index);
+    gl.bufferData(
+        gl.ELEMENT_ARRAY_BUFFER,
+        new Uint16Array([0,1,2,1,2,3]),
+        gl.STATIC_DRAW
+    );
+
+    //获取“顶点数据源”接口p的序号
+    var p=gl.getAttribLocation(program,"p");
+
+    //开启p的数组模式
+    gl.enableVertexAttribArray(p);
+
+    //把当前工作的数据缓冲区指定给p这个接口
+    gl.vertexAttribPointer(p,4,gl.FLOAT,false,0,0);
+
+    //绘制索引（注意索引数据必须在当前工作缓冲区中,这个方法会去当前工作缓冲区中取索引数据。也就是说，在调用这个方法之前，我们最后一次bindBuffer操作的必须是索引所在的缓冲区，要不然就找不到索引数据了）
+    gl.drawElements(gl.TRIANGLES,6,gl.UNSIGNED_SHORT,0);
+</script>
+</body>
+</html>
