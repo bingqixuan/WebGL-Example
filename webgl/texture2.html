@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<canvas id="webgl" width="600" height="400"></canvas>
+<script id="vs_s" type="text/plain">
+attribute vec3 po;
+attribute vec2 mp; //贴图坐标
+uniform mat4 pro;
+uniform mat4 rot;
+uniform mat4 mov;
+varying vec2 mp_v; //贴图坐标管道
+void main(){
+  mp_v=mp;
+  gl_Position=pro*mov*rot*vec4(po,1.0);
+}
+</script>
+<script id="fs_s" type="text/plain">
+varying lowp vec2 mp_v; //贴图坐标管道
+uniform sampler2D tex; //图片数据对象
+void main(){
+  //调用texture2D函数，取出图片数据对象在某个坐标点的颜色
+  gl_FragColor=texture2D(tex,mp_v);
+}
+</script>
+<script>
+    // 获取<canvas>元素
+    var canvas = document.getElementById('webgl');
+
+    // 获取webGL上下文
+    var gl =getWebGLContext(canvas);
+
+    if(!gl) {
+        console.log('Failed to get the rendering context for WebGL');
+    }
+
+    // 初始化着色器
+    if (!initShaders(gl, vs_s.textContent, fs_s.textContent)) {
+        console.log('Failed to initialize shaders');
+    }
+
+    // 配置纹理
+    var n = initVertexBuffers(gl);
+    if (n < 0) {
+        console.log('Failed to set the positions of the vertices');
+    }
+
+    // 清空<canvas>的背景色
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+
+    if (!initTextures(gl, n)) {
+        console.log('Failed to intialize the texture.');
+    }
+    
+    function initVertexBuffers() {
+        
+    }
+</script>
+</body>
+</html>
