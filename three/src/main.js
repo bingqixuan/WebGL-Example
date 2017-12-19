@@ -23,6 +23,7 @@ function render(){
     requestAnimationFrame(render);
     cube.rotation.x += 0.1;
     cube.rotation.y += 0.1;
+    renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(scene, camera);
 }
 

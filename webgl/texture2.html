@@ -6,6 +6,10 @@
 </head>
 <body>
 <canvas id="webgl" width="600" height="400"></canvas>
+<script src="./lib/webgl-utils.js"></script>
+<script src="./lib/webgl-debug.js"></script>
+<script src="./lib/cuon-utils.js"></script>
+<script src="./lib/cuon-matrix.js"></script>
 <script id="vs_s" type="text/plain">
 attribute vec3 po;
 attribute vec2 mp; //贴图坐标
@@ -55,8 +59,29 @@ void main(){
         console.log('Failed to intialize the texture.');
     }
     
-    function initVertexBuffers() {
-        
+    function initVertexBuffers(gl) {
+        //指定顶点坐标的数据源
+        var dat=new Float32Array(tmp=[
+            -1,-1,-1, -1,1,-1,  -1,1,1, -1,-1,1,  //左面
+            1,-1,-1,  1,1,-1,   1,1,1,  1,-1,1,   //右面
+            -1,1,-1,  1,1,-1,   1,1,1,  -1,1,1,   //上面
+            -1,-1,-1, 1,-1,-1,  1,-1,1, -1,-1,1,  //下面
+            -1,-1,1,  1,-1,1,   1,1,1,  -1,1,1,   //前面
+            -1,-1,-1, 1,-1,-1,  1,1,-1, -1,1,-1   //后面
+        ]);
+        var buf=gl.createBuffer();
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,buf);
+        webgl.bufferData(webgl.ARRAY_BUFFER,dat,webgl.STATIC_DRAW);
+        webgl.vertexAttribPointer(po,3,webgl.FLOAT,false,0,0);
+
+//指定贴图坐标数据源
+        for(dat=[],var i=0;i<tmp.length;i+=3)for(var j=0;j<3;j++)
+            if(j!=(i/24|0))dat.push((tmp[i+j]+1)/2);
+        dat=new Float32Array(dat);
+        buf=wgl.createBuffer();
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,buf);
+        webgl.bufferData(webgl.ARRAY_BUFFER,dat,webgl.STATIC_DRAW);
+        webgl.vertexAttribPointer(mp,2,webgl.FLOAT,false,0,0);
     }
 </script>
 </body>
