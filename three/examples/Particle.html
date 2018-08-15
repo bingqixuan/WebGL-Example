@@ -17,12 +17,17 @@
 </head>
 <body onload="draw();">
 </body>
-<script src="../../build/three.js"></script>
+<script src="../lib/three.min.js"></script>
 <script src="../js/controls/OrbitControls.js"></script>
 <script src="../js/libs/stats.min.js"></script>
 <script src="../js/libs/dat.gui.min.js"></script>
 <script>
     var renderer, camera, scene, light, stats, controls, gui;
+    
+    function Partical() {
+        var a = new THREE.Vector2( 0, 1 );
+        var b = new THREE.Vector2( 1, 0 );
+    }
 
     function initRender() {
         renderer = new THREE.WebGLRenderer({antialias: true});

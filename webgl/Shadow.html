@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<canvas id="canvas" width="512" height="512"></canvas>
+<script id="vs_s" type="text/plain">
+
+//顶点着色器
+attribute vec3 po;
+attribute vec2 mp;
+attribute vec3 no;
+uniform vec3 li_co; // 光线颜色
+uniform vec3 li_di; // 光线方向
+uniform bool tp; //操作类型
+uniform mat4 tra; //变换矩阵
+uniform mat4 pro_a; //计算深度时用的投射矩阵
+uniform mat4 viw_a; //计算深度时用的视图矩阵
+uniform mat4 pro_b; //绘制到屏幕的投射矩阵
+uniform mat4 viw_b; //绘制到屏幕的视图矩阵
+varying vec3 dif;
+varying vec2 mp_v;
+varying vec4 po_v; //包含深度信息的顶点数据
+void main(){
+  //无论是绘制到帧缓冲还是屏幕都需要计算包含深度信息的顶点数据
+  po_v=pro_a*viw_a*tra*vec4(po,1.0);
+  if(tp){ //绘制到帧缓冲是不需要其他计算
+    gl_Position=po_v;
+  }else{ //绘制到屏幕时需要计算光照效果
+    gl_Position=pro_b*viw_b*tra*vec4(po,1.0);
+    float v=-dot((tra*vec4(normalize(no),0.0)).xyz,li_di);
+    dif=clamp(v,0.2,0.8)*li_co;
+    mp_v=mp;
+  };
+}
+
+</script>
+<script id="fs_s" type="text/plain">
+
+//片段着色器
+precision highp float;
+uniform sampler2D tex; //正常贴图数据
+uniform sampler2D tex_fb; //帧缓冲贴图数据
+uniform vec3 amb;
+uniform bool tp; //操作类型
+varying vec3 dif;
+varying vec2 mp_v;
+varying vec4 po_v; //包含深度信息的顶点数据
+void main(){
+  if(tp){ //绘制到帧缓冲中需要把z坐标输出就行
+    gl_FragColor=vec4(po_v.zzz,1.0);
+  }else{ //绘制到屏幕
+    //从帧缓冲贴图数据中读取相应顶点位置的深度信息
+    float dp=texture2D(tex_fb,po_v.xy/po_v.w*0.5+0.5).z;
+    //判断当前顶点的深度是否和贴图中获取的深度相近
+    //如果相近则使用正常的光照效果
+    //如果不相近则把光照效果调到最低
+    vec4 li=abs(po_v.z-dp)<0.01?vec4(dif,1.0):vec4(0.2,0.2,0.2,1.0);
+    //从正常的贴图中取出颜色数据，并应用光照计算
+    gl_FragColor=texture2D(tex,mp_v)*li+vec4(amb,1.0);
+  };
+}
+
+</script>
+<script type="text/javascript">
+
+    /*准备*/
+    var webgl,program,vs,fs,dat,tmp,i,j,k;
+    webgl=canvas.getContext("experimental-webgl");
+    program=webgl.createProgram();
+    vs=webgl.createShader(webgl.VERTEX_SHADER);
+    fs=webgl.createShader(webgl.FRAGMENT_SHADER);
+    webgl.shaderSource(vs,vs_s.textContent);
+    webgl.shaderSource(fs,fs_s.textContent);
+    webgl.compileShader(vs);
+    webgl.compileShader(fs);
+    webgl.attachShader(program,vs);
+    webgl.attachShader(program,fs);
+    webgl.linkProgram(program);
+    webgl.useProgram(program);
+
+    /*顶点属性相关*/
+    var po,mp,no,count;
+    po=webgl.getAttribLocation(program,"po");
+    mp=webgl.getAttribLocation(program,"mp");
+    no=webgl.getAttribLocation(program,"no");
+    webgl.enableVertexAttribArray(po);
+    webgl.enableVertexAttribArray(mp);
+    webgl.enableVertexAttribArray(no);
+
+    /*数据相关*/
+    var ball_po,ball_mp,ball_no,ground_po,ground_mp,ground_no;
+    //球体
+    ball_po=webgl.createBuffer();
+    ball_mp=webgl.createBuffer();
+    ball_no=webgl.createBuffer();
+    count=(function(n,po,mp,no){
+        var i,j,k,f=function(a,b){
+            var r=0.3,a=Math.PI*a/n,b=Math.PI*2*b/n,l=Math.sin(a)*r;
+            return [Math.sin(b)*l,Math.cos(a)*r,Math.cos(b)*l];
+        };
+        for(i=1;i<=n;i++)for(j=1;j<=n;j++){
+            k=[].concat(f(i,j),f(i-1,j),f(i,j-1),f(i,j-1),f(i-1,j),f(i-1,j-1));
+            po.push.apply(po,k),no.push.apply(no,k);
+            mp.push(j/n,n-i/n, j/n,n-(i-1)/n, (j-1)/n,n-i/n, (j-1)/n,n-i/n, j/n,n-(i-1)/n, (j-1)/n,n-(i-1)/n);
+        };
+        return n*n*6;
+    })(36,po_dat=[],mp_dat=[],no_dat=[]);
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_po);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array(po_dat),webgl.STATIC_DRAW);
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_mp);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array(mp_dat),webgl.STATIC_DRAW);
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_no);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array(no_dat),webgl.STATIC_DRAW);
+    //地面
+    ground_po=webgl.createBuffer();
+    ground_mp=webgl.createBuffer();
+    ground_no=webgl.createBuffer();
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_po);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array([
+        -2,-1,-1, -2,-1,-4, 2,-1,-1, 2,-1,-1, -2,-1,-4, 2,-1,-4
+    ]),webgl.STATIC_DRAW);
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_mp);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array([
+        0,0, 0,6, 6,0, 6,0, 0,6 ,6,6
+    ]),webgl.STATIC_DRAW);
+    webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_no);
+    webgl.bufferData(webgl.ARRAY_BUFFER,new Float32Array([
+        0,1,0, 0,1,0, 0,1,0, 0,1,0, 0,1,0, 0,1,0
+    ]),webgl.STATIC_DRAW);
+
+    /*全局属性相关*/
+    var tra,pro_a,viw_a,pro_b,viw_b,tex,tex_fb,amb,tp,li_co,li_di;
+    tra=webgl.getUniformLocation(program,"tra");
+    pro_a=webgl.getUniformLocation(program,"pro_a");
+    viw_a=webgl.getUniformLocation(program,"viw_a");
+    pro_b=webgl.getUniformLocation(program,"pro_b");
+    viw_b=webgl.getUniformLocation(program,"viw_b");
+    tex=webgl.getUniformLocation(program,"tex");
+    tex_fb=webgl.getUniformLocation(program,"tex_fb");
+    amb=webgl.getUniformLocation(program,"amb");
+    tp=webgl.getUniformLocation(program,"tp");
+    li_co=webgl.getUniformLocation(program,"li_co");
+    li_di=webgl.getUniformLocation(program,"li_di");
+    webgl.uniform3fv(amb,[0.2,0.2,0.2]);
+//    webgl.uniform3fv(li_co,[1,1,1]);
+    webgl.uniform3fv(li_co,[1,0,0]);
+    webgl.uniform1i(tex_fb,0);
+    webgl.uniformMatrix4fv(viw_b,false,[1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+    webgl.uniformMatrix4fv(pro_b,false,[1,0,0,0, 0,1,0,0, 0,0,-1,-1, 0,0,-2,0]);
+    webgl.uniformMatrix4fv(pro_a,false,[1,0,0,0, 0,1,0,0, 0,0,-1/16,0, 0,0,0,3]);
+//    var D=normalize3D([-0.3,-1,0]); //平行光方向和帧缓冲中的摄像机方法
+    var D=normalize3D([0.3, 0.3, 0]); //平行光方向和帧缓冲中的摄像机方法
+    webgl.uniform3fv(li_di,D);
+    //计算视图矩阵（把摄像机移动到光源位置）
+    webgl.uniformMatrix4fv(viw_a,false,(function(P,F,R){
+        var i,s,F=normalize3D(F),R=normalize3D(R),U=cross3D(R,F);
+        for(i=0,s=[];i<3;i++)s.push(R[i],U[i],-F[i],0);
+        return s.concat([-dot3D(P,R),-dot3D(P,U),dot3D(P,F),1]);
+    })([1.2,4,-2.5],D,[0,0,-1]));
+
+    /*贴图相关*/
+    (function(){
+        var i,j,k,dat,img=new Image;
+        //球体的贴图
+        img.src="./assets/sky.jpg";
+        img.onload=function(){
+            webgl.activeTexture(webgl.TEXTURE1);
+            webgl.bindTexture(webgl.TEXTURE_2D,webgl.createTexture());
+            webgl.texImage2D(webgl.TEXTURE_2D,0,webgl.RGB,webgl.RGB,webgl.UNSIGNED_BYTE,img);
+            webgl.texParameteri(webgl.TEXTURE_2D,webgl.TEXTURE_MIN_FILTER,webgl.LINEAR_MIPMAP_LINEAR);
+            webgl.generateMipmap(webgl.TEXTURE_2D);
+            draw();
+        };
+        //地面的贴图
+        for(dat=[],i=0;i<64;i++)for(j=0;j<64;j++)k=i<32^j<32?0x33:0x99,dat.push(k,k,k);
+        webgl.activeTexture(webgl.TEXTURE2);
+        webgl.bindTexture(webgl.TEXTURE_2D,webgl.createTexture());
+        webgl.texImage2D(webgl.TEXTURE_2D,0,webgl.RGB,64,64,0,webgl.RGB,webgl.UNSIGNED_BYTE,new Uint8Array(dat));
+        webgl.texParameteri(webgl.TEXTURE_2D,webgl.TEXTURE_MIN_FILTER,webgl.LINEAR_MIPMAP_LINEAR);
+        webgl.generateMipmap(webgl.TEXTURE_2D);
+    })();
+
+    /*帧缓冲相关*/
+    var fb=(function(){
+        var fb,rb,tx;
+        fb=webgl.createFramebuffer();
+        rb=webgl.createRenderbuffer();
+        tx=webgl.createTexture();
+        webgl.bindFramebuffer(webgl.FRAMEBUFFER,fb);
+        webgl.bindRenderbuffer(webgl.RENDERBUFFER,rb);
+        webgl.activeTexture(webgl.TEXTURE0);
+        webgl.bindTexture(webgl.TEXTURE_2D,tx);
+        webgl.framebufferRenderbuffer(webgl.FRAMEBUFFER,webgl.DEPTH_ATTACHMENT,webgl.RENDERBUFFER,rb);
+        webgl.renderbufferStorage(webgl.RENDERBUFFER,webgl.DEPTH_COMPONENT16,512,512);
+        webgl.framebufferTexture2D(webgl.FRAMEBUFFER,webgl.COLOR_ATTACHMENT0,webgl.TEXTURE_2D,tx,0);
+        webgl.texImage2D(webgl.TEXTURE_2D,0,webgl.RGB,512,512,0,webgl.RGB,webgl.UNSIGNED_BYTE,null);
+        webgl.texParameteri(webgl.TEXTURE_2D,webgl.TEXTURE_MIN_FILTER,webgl.LINEAR);
+        webgl.texParameteri(webgl.TEXTURE_2D,webgl.TEXTURE_MAG_FILTER,webgl.LINEAR);
+        return fb;
+    })();
+
+    /*绘制相关*/
+    webgl.clearColor(0.0,0.0,0.0,1.0);
+    webgl.enable(webgl.DEPTH_TEST);
+    webgl.pixelStorei(webgl.UNPACK_FLIP_Y_WEBGL,true);
+    function draw(){
+        var a=0;
+        setInterval(function(){
+            a+=0.02;
+            /*绘制到帧缓冲*/
+            webgl.bindFramebuffer(webgl.FRAMEBUFFER,fb);
+            webgl.uniform1i(tp,true);
+            draw_objects(a);
+            /*绘制到屏幕*/
+            webgl.bindFramebuffer(webgl.FRAMEBUFFER,null);
+            webgl.uniform1i(tp,false);
+            draw_objects(a);
+        },16);
+    };
+    function draw_objects(a){
+        webgl.clear(webgl.COLOR_BUFFER_BIT|webgl.DEPTH_BUFFER_BIT);
+        //绘制球体
+        webgl.uniform1i(tex,1);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_po);
+        webgl.vertexAttribPointer(po,3,webgl.FLOAT,false,0,0);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_mp);
+        webgl.vertexAttribPointer(mp,2,webgl.FLOAT,false,0,0);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ball_no);
+        webgl.vertexAttribPointer(no,3,webgl.FLOAT,false,0,0);
+        var s1=Math.sin(a),c1=Math.cos(a),s2=Math.sin(-a),c2=Math.cos(-a);
+        webgl.uniformMatrix4fv(tra,false,[c1,0,s1,0, 0,1,0,0, -s1,0,c1,0, s1*0.5,-0.3,c1*0.5-2.5,1]);
+        webgl.drawArrays(webgl.TRIANGLES,0,count);
+        webgl.uniformMatrix4fv(tra,false,[c2,0,s2,0, 0,1,0,0, -s2,0,c2,0, s2*0.8,0.6,c2*0.8-2.5,1]);
+        webgl.drawArrays(webgl.TRIANGLES,0,count);
+        //绘制地面
+        webgl.uniform1i(tex,2);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_po);
+        webgl.vertexAttribPointer(po,3,webgl.FLOAT,false,0,0);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_mp);
+        webgl.vertexAttribPointer(mp,2,webgl.FLOAT,false,0,0);
+        webgl.bindBuffer(webgl.ARRAY_BUFFER,ground_no);
+        webgl.vertexAttribPointer(no,3,webgl.FLOAT,false,0,0);
+        webgl.uniformMatrix4fv(tra,false,[1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        webgl.drawArrays(webgl.TRIANGLES,0,6);
+    };
+
+    //定义简单的向量操作
+    function cross3D(A,B){
+        return [A[1]*B[2]-A[2]*B[1],A[2]*B[0]-A[0]*B[2],A[0]*B[1]-A[1]*B[0]];
+    };
+    function dot3D(A,B){
+        return A[0]*B[0]+A[1]*B[1]+A[2]*B[2];
+    };
+    function normalize3D(A){
+        var n=Math.sqrt(A[0]*A[0]+A[1]*A[1]+A[2]*A[2]);
+        if(!n)return [0,0,0];
+        return [A[0]/n,A[1]/n,A[2]/n]
+    };
+
+</script>
+
+</body>
+</html>
