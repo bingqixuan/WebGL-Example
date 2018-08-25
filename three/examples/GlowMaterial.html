@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style type="text/css">
+        html, body {
+            margin: 0;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+
+    </style>
+</head>
+<body>
+<div id="ThreeJS" style="position: absolute; left:0px; top:0px"></div>
+</body>
+<script src="../lib/three.js"></script>
+<script src="../js/controls/OrbitControls.js"></script>
+<script src="../js/libs/stats.min.js"></script>
+<script src="../js/libs/dat.gui.min.js"></script>
+<!-- vertext shader a.k.a. pixel shader -->
+<script id="vertexShader" type="x-shader/x-vertex">
+    varying vec3 vNormal;
+    varying vec3 vPositionNormal;
+    void main()
+    {
+      vNormal = normalize( normalMatrix * normal ); // 转换到视图空间
+      vPositionNormal = normalize(( modelViewMatrix * vec4(position, 1.0) ).xyz);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+    }
+  </script>
+<!-- fragment shader a.k.a. pixel shader -->
+<script id="fragmentShader" type="x-shader/x-vertex">
+    uniform vec3 glowColor;
+    uniform float b;
+    uniform float p;
+    uniform float s;
+    varying vec3 vNormal;
+    varying vec3 vPositionNormal;
+    void main()
+    {
+      float a = pow( b + s * abs(dot(vNormal, vPositionNormal)), p );
+      gl_FragColor = vec4( glowColor, a );
+    }
+  </script>
+<script>
+
+    // 示例来自 https://zhuanlan.zhihu.com/p/38548428
+
+    var container, scene, camera, renderer, controls;
+    init();
+
+    function init() {
+        initBase();
+        initObject();
+        render();
+    }
+
+    function initBase() {
+        container = document.getElementById('ThreeJS');
+
+        // SCENE
+        scene = new THREE.Scene();
+        // CAMERA
+        var SCREEN_WIDTH = window.innerWidth,SCREEN_HEIGHT = window.innerHeight;
+        var VIEW_ANGLE = 45,ASPECT = SCREEN_WIDTH / SCREEN_HEIGHT,NEAR = 0.1,FAR = 20000;
+        camera = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR);
+
+        camera.position.set(0, 0, 200);
+        camera.lookAt(scene.position);
+        // RENDERER
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+        container.appendChild(renderer.domElement);
+        // CONTROLS
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.addEventListener('change', render);
+    }
+
+    function initObject() {
+        var customMaterial = new THREE.ShaderMaterial({
+            uniforms:
+                {
+                    "s": { type: "f", value: -1.0 },
+                    "b": { type: "f", value: 1.0 },
+                    "p": { type: "f", value: 2.0 },
+                    glowColor: { type: "c", value: new THREE.Color(0x00ffff) } },
+
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('fragmentShader').textContent,
+            side: THREE.FrontSide,
+            blending: THREE.AdditiveBlending,
+            transparent: true });
+
+        var geometry = new THREE.TorusKnotBufferGeometry(10, 3, 100, 32);
+        var torusKnot = new THREE.Mesh(geometry, customMaterial);
+        scene.add(torusKnot);
+
+    }
+
+    function render() {
+        renderer.render(scene, camera);
+    }
+
+</script>
+</html>

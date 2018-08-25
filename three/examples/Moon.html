@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style type="text/css">
+        html, body {
+            margin: 0;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+
+    </style>
+</head>
+<body>
+<div id="ThreeJS" style="position: absolute; left:0px; top:0px"></div>
+</body>
+<script src="../lib/three.js"></script>
+<script src="../js/controls/OrbitControls.js"></script>
+<script src="../js/libs/stats.min.js"></script>
+<script src="../js/libs/dat.gui.min.js"></script>
+<script type="x-shader/x-vertex" id="ortho-vs">
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+</script>
+
+<script type="x-shader/x-vertex" id="fs_ZoomBlur">
+  varying vec2 vUv;
+  uniform sampler2D tDiffuse;
+  uniform vec2 resolution;
+  uniform float strength;
+  float random(vec3 scale,float seed){return fract(sin(dot(gl_FragCoord.xyz+seed,scale))*43758.5453+seed);}
+  void main() {
+    vec2 center = .5 * resolution;
+    vec4 color = vec4(0.0);
+    float total = 0.0;
+    vec2 toCenter = center - vUv * resolution;
+    float offset = random( vec3(12.9898, 78.233, 151.7182), 0.0);
+    for(float t=0.0;t<=40.0;t++){
+      float percent = (t + offset) / 40.0;
+      float weight = 4.0*(percent- percent * percent);
+      vec4 sam = texture2D(tDiffuse, vUv + toCenter * percent * strength/resolution);
+      sam.rgb *= sam.a;
+      color += sam * weight;
+      total += weight;
+    }
+    gl_FragColor=color/total;
+    gl_FragColor.rgb/=gl_FragColor.a+0.00001;
+  }
+</script>
+<script type="x-shader/x-vertex" id="fs_Composite">
+  varying vec2 vUv;
+  uniform sampler2D tBase;
+  uniform sampler2D tGlow;
+  void main() {
+    //Screen: X = 1- ((255-U)*(255-L))/255
+    vec4 color =  ( 1.0 - (1.0 - texture2D( tGlow, vUv ) ) * ( 1.0 - texture2D( tBase, vUv ) ) );
+    // color = mix( texture2D( tBase, vUv ), texture2D( tGlow, vec2( vUv.x, 1.0 - vUv.y ) ), .5 );
+    // color = texture2D( tBase, vUv ) + texture2D( tGlow, vUv ) * texture2D( tGlow, vUv );
+    // color = texture2D( tGlow, vUv );
+    // color = texture2D(tBase, vUv);
+    gl_FragColor = vec4( color.rgb, 1.0 );
+  }
+</script>
+<script>
+
+    // 示例来自 https://zhuanlan.zhihu.com/p/38612359
+
+    var camera, moon, scene, orthoScene, renderer, controls;
+    var orthoScene, orthoQuad, OrthographicCamera;
+    var baseTexture, glowTexture, zoomBlurShader;
+
+    init();
+    animate();
+
+    function init() {
+
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
+        camera.position.set(0, 0, 100);
+        scene = new THREE.Scene();
+        scene.add(camera);
+
+        var globeGeometry = new THREE.SphereGeometry( 20, 64, 64 );
+        var material = new THREE.MeshBasicMaterial( {
+            map: new THREE.TextureLoader().load("https://raw.githubusercontent.com/stemkoski/stemkoski.github.com/master/Three.js/images/moon.jpg"),
+            overdraw: 0.5,
+            color: new THREE.Color(0xcccccc)
+        } );
+
+        moon = new THREE.Mesh( globeGeometry, material );
+        scene.add( moon );
+
+        renderer = new THREE.WebGLRenderer({
+            antialias: true
+        });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.autoClear = false;
+
+        document.body.appendChild(renderer.domElement);
+
+        window.addEventListener('resize', onWindowResize, false);
+
+
+        // orthoScene, orthocCamera, orthoQuad are used for image postprocessing
+        orthoScene = new THREE.Scene();
+        orthoCamera = new THREE.OrthographicCamera(1 / -2, 1 / 2, 1 / 2, 1 / -2, .00001, 1000);
+
+        orthoQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), zoomBlurShader);
+        orthoScene.add(orthoQuad);
+
+        // renderTarget is a buffer where the video card draws pixels for a scene
+        // that is being rendered in the background
+        baseTexture = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBFormat
+        });
+
+        glowTexture = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBFormat
+        });
+
+        zoomBlurShader = new THREE.ShaderMaterial({
+            uniforms: {
+                tDiffuse: {
+                    type: "t",
+                    value: 0,
+                    texture: glowTexture
+                },
+                resolution: {
+                    type: "v2",
+                    value: new THREE.Vector2(window.innerWidth, window.innerHeight)
+                },
+                strength: {
+                    type: "f",
+                    value: .65
+                }
+            },
+            vertexShader: document.getElementById('ortho-vs').textContent,
+            fragmentShader: document.getElementById('fs_ZoomBlur').textContent,
+        });
+
+        compositeShader = new THREE.ShaderMaterial({
+            uniforms: {
+                tBase: {
+                    type: "t",
+                    value: 0,
+                    texture: baseTexture
+                },
+                tGlow: {
+                    type: "t",
+                    vlaue: 1,
+                    texture: glowTexture
+                }
+            },
+            vertexShader: document.getElementById('ortho-vs').textContent,
+            fragmentShader: document.getElementById('fs_Composite').textContent,
+            depthWrite: false
+        });
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    }
+
+    function onWindowResize() {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(w, h);
+
+        baseTexture.setSize(w, h);
+        glowTexture.setSize(w, h);
+
+        zoomBlurShader.uniforms.resolution.value = new THREE.Vector2(w, h);
+
+        orthoQuad.scale.set(w, h, 1);
+
+        orthoCamera.left = -w / 2;
+        orthoCamera.right = w / 2;
+        orthoCamera.top = h / 2;
+        orthoCamera.bottom = -h / 2;
+        orthoCamera.updateProjectionMatrix();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        render();
+    }
+
+    function render() {
+        controls.update();
+
+        // the third parameter is renderTarget. Render is done to the renderTarget or to the canvas.
+        // the fourth parameter is forceClear.
+        renderer.render(scene, camera, baseTexture, true);
+
+        // renderer.render(scene, camera);
+        // change the quad's material as it's a shader pass
+        orthoQuad.material = zoomBlurShader;
+        orthoQuad.material.uniforms.tDiffuse.value = baseTexture.texture;
+
+        renderer.render(orthoScene, orthoCamera, glowTexture, false);
+
+        orthoQuad.material = compositeShader;
+        orthoQuad.material.uniforms.tBase.value = baseTexture.texture;
+        orthoQuad.material.uniforms.tGlow.value = glowTexture.texture;
+
+        renderer.render(orthoScene, orthoCamera);
+
+    }
+
+</script>
+</html>

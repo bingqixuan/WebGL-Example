@@ -17,17 +17,124 @@
 </head>
 <body onload="draw();">
 </body>
-<script src="../lib/three.min.js"></script>
+<script src="../lib/three.js"></script>
 <script src="../js/controls/OrbitControls.js"></script>
 <script src="../js/libs/stats.min.js"></script>
 <script src="../js/libs/dat.gui.min.js"></script>
+<script id="vertexShader" type="x-shader/x-vertex">
+// The current time in our simulation. A particle's
+// position is a function of the current time.
+uniform float uTime;
+
+// The location of the center of the fire
+uniform vec3 uFirePos;
+
+// The random amount of time that this particle should
+// live before re-starting it's motion.
+attribute float aLifetime;
+
+// The uv coordinates of this vertex
+attribute vec2 aTextureCoords;
+
+// How far this vertex is from the center of this invidual particle
+attribute vec2 aTriCorner;
+
+// How far this particle starts from the center of the entire flame
+attribute vec3 aCenterOffset;
+
+// The randomly generated velocity of the particle
+attribute vec3 aVelocity;
+
+// Our perspective and world view matrix
+uniform mat4 uPMatrix;
+uniform mat4 uViewMatrix;
+
+// Whether or not to make our particles face the camera. This
+// is used to illustrate the difference between billboarding and
+// not billboarding your particle quads.
+uniform bool uUseBillboarding;
+
+// We pass the lifetime and uv coordinates to our fragment shader
+varying float vLifetime;
+varying vec2 vTextureCoords;
+
+void main (void) {
+  // Loop the particle through it's lifetime by using the modulus
+  // of the current time and the lifetime
+  float time = mod(uTime, aLifetime);
+
+  // We start by positioning our particle at the fire's position. We then
+  // multiply it's velocity by the amount of time elapsed to move it along
+  // it's trajectory
+  vec4 position = vec4(uFirePos + aCenterOffset + (time * aVelocity), 1.0);
+
+  // Calculate a size for our particle. As it ages we make it smaller. I wrote
+  // this before I really understood what I was doing so the it's a little
+  // unclear.. but I don't want to tamper with it since I like the effect so
+  // *shrug*.
+  vLifetime = 1.3 - (time / aLifetime);
+  vLifetime = clamp(vLifetime, 0.0, 1.0);
+  float size = (vLifetime * vLifetime) * 0.05;
+
+  // If we want to use billboarding we get the right and up world space vectors for
+  // our camera and use that to align our vertex so our particle faces the camera
+  if (uUseBillboarding) {
+    vec3 cameraRight = vec3(uViewMatrix[0].x, uViewMatrix[1].x, uViewMatrix[2].x);
+    vec3 cameraUp = vec3(uViewMatrix[0].y, uViewMatrix[1].y, uViewMatrix[2].y);
+
+    position.xyz += (cameraRight * aTriCorner.x * size) + (cameraUp * aTriCorner.y * size);
+  } else {
+    // If billboarding is not enabled we align our vertex along the XY plane
+    position.xy += aTriCorner.xy * size;
+  }
+
+  // Position our vertex in clip space
+  gl_Position = uPMatrix * uViewMatrix * position;
+
+  vTextureCoords = aTextureCoords;
+  vLifetime = aLifetime;
+  }
+</script>
+<script id="fragmentShader" type="x-shader/x-fragment">
+precision mediump float;
+
+// Adjust the color of the fire
+uniform vec4 uColor;
+
+uniform float uTimeFrag;
+
+varying float vLifetime;
+varying vec2 vTextureCoords;
+
+uniform sampler2D fireAtlas;
+
+void main (void) {
+  // So as I was learning I threw this in and I liked how it looked.
+  // This doesn't make much sense since we aren't even calculating a life
+  // percentage.. but I'll leave it. Sometimes you achieve effects that you like
+  // by accident *shrug*
+  float time = mod(uTimeFrag, vLifetime);
+  float percentOfLife = time / vLifetime;
+  percentOfLife = clamp(percentOfLife, 0.0, 1.0);
+
+  // Ok so the first part of this fragment shader is bogus.. but let's move on. Here we
+  // decide which of the 16 textures in our texture atlas to use based on how far along
+  // in the particle's life we are. As it ages we move through the fire sprites in the
+  // atlas.
+  float offset = floor(16.0 * percentOfLife);
+  float offsetX = floor(mod(offset, 4.0)) / 4.0;
+  float offsetY = 0.75 - floor(offset / 4.0) / 4.0;
+
+  // Set the frag color to the fragment in the sprite within our texture atlas
+  vec4 texColor = texture2D(fireAtlas, vec2((vTextureCoords.x / 4.0) + offsetX, (vTextureCoords.y / 4.0) + offsetY));
+  gl_FragColor = uColor * texColor;
+
+  // Fade away the particle as it ages
+  gl_FragColor.a *= vLifetime;
+}
+</script>
 <script>
     var renderer, camera, scene, light, stats, controls, gui;
-    
-    function Partical() {
-        var a = new THREE.Vector2( 0, 1 );
-        var b = new THREE.Vector2( 1, 0 );
-    }
 
     function initRender() {
         renderer = new THREE.WebGLRenderer({antialias: true});
@@ -38,7 +145,7 @@
 
     function initCamera() {
         camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000);
-        camera.position.set(0, 0, 150);
+        camera.position.set(0, 0.25, 1);
     }
 
     function initScene() {
@@ -53,31 +160,124 @@
         scene.add(light);
     }
 
+
+    // Initialize the data for all of our particles
+    var numParticles = 1000
+    var lifetimes = []
+    var triCorners = []
+    var texCoords = []
+    var vertexIndices = []
+    var centerOffsets = []
+    var velocities = []
+
+    var triCornersCycle = [
+        // Bottom left corner of the square
+        -1.0, -1.0,
+        // Bottom right corner of the square
+        1.0, -1.0,
+        // Top right corner of the square
+        1.0, 1.0,
+        // Top left corner of the square
+        -1.0, 1.0
+    ]
+    var texCoordsCycle = [
+        // Bottom left corner of the texture
+        0, 0,
+        // Bottom right corner of the texture
+        1, 0,
+        // Top right corner of the texture
+        1, 1,
+        // Top left corner of the texture
+        0, 1
+    ]
+
+    var uniforms = {};
     function initModel() {
 
-        //轴辅助 （每一个轴的长度）
-        object = new THREE.AxesHelper(50);
-        scene.add(object);
+        for (var i = 0; i < numParticles; i++) {
+            // Particles live for up to 8 seconds
+            var lifetime = 8 * Math.random()
 
-        var meshMaterial = new THREE.MeshNormalMaterial({
-            wireframe: true
-        });
+            // Particles are placed within 0.25 units from the center of the flame
+            var diameterAroundCenter = 0.5
+            var halfDiameterAroundCenter = diameterAroundCenter / 2
 
-        var geometry = new THREE.BoxGeometry(100, 5, 3, 400, 1);
+            // We randomly choose the x displacement from the center
+            var xStartOffset = diameterAroundCenter * Math.random() - halfDiameterAroundCenter
+            xStartOffset /= 3
 
-        geometry.vertices.forEach(function (item) {
-            item.z -= 1.5;
+            // We randomly choose the y displacement from the center
+            var yStartOffset = diameterAroundCenter * Math.random() - halfDiameterAroundCenter
+            yStartOffset /= 10
 
-            if (item.z < 0) {
-                item.z = 0;
+            // We randomly choose the z displacement from the center
+            var zStartOffset = diameterAroundCenter * Math.random() - halfDiameterAroundCenter
+            zStartOffset /= 3
+
+            // We randomly choose how fast the particle shoots up into the air
+            var upVelocity = 0.1 * Math.random()
+
+            // We randomly choose how much the particle drifts to the left or right
+            var xSideVelocity = 0.02 * Math.random()
+            if (xStartOffset > 0) {
+                xSideVelocity *= -1
             }
-            else {
-                item.z -= Math.sqrt(2500 - item.x * item.x) - 50;
-            }
-        });
 
-        var cube = new THREE.Mesh(geometry, meshMaterial);
-        scene.add(cube);
+            // We randomly choose how much the particle drifts to the front and back
+            var zSideVelocity = 0.02 * Math.random()
+            if (zStartOffset > 0) {
+                zSideVelocity *= -1
+            }
+
+            // Push the data for the four corners of the particle quad
+            for (var j = 0; j < 4; j++) {
+                lifetimes.push(lifetime)
+
+                triCorners.push(triCornersCycle[j * 2])
+                triCorners.push(triCornersCycle[j * 2 + 1])
+
+                texCoords.push(texCoordsCycle[j * 2])
+                texCoords.push(texCoordsCycle[j * 2 + 1])
+                centerOffsets.push(xStartOffset)
+                // Particles that start farther from the fire's center start slightly
+                // higher. This gives the bottom of the fire a slight curve
+                centerOffsets.push(yStartOffset + Math.abs(xStartOffset / 2.0))
+                centerOffsets.push(zStartOffset)
+
+                velocities.push(xSideVelocity)
+                velocities.push(upVelocity)
+                velocities.push(zSideVelocity)
+            }
+
+            // Push the 6 vertices that will form our quad
+            // 3 for the first triangle and 3 for the second
+            vertexIndices = vertexIndices.concat([
+                0, 1, 2, 0, 2, 3
+            ].map(function (num) { return num + 4 * i }))
+        }
+
+        var geometry = new THREE.BufferGeometry();
+
+        geometry.setIndex(vertexIndices);
+
+        geometry.addAttribute( 'aLifetime', new THREE.Float32BufferAttribute(lifetimes, 1 ) );
+        geometry.addAttribute( 'aTextureCoords', new THREE.Float32BufferAttribute(texCoords, 2 ) );
+        geometry.addAttribute( 'aTriCorner', new THREE.Float32BufferAttribute(triCorners, 2 ) );
+        geometry.addAttribute( 'aCenterOffset', new THREE.Float32BufferAttribute(centerOffsets, 3 ) );
+        geometry.addAttribute( 'aVelocity',  new THREE.Float32BufferAttribute(velocities, 3 ) );
+
+
+        var customDepthMaterial = new THREE.ShaderMaterial( {
+            uniforms: function () {
+                return uniforms;
+            },
+            vertexShader: document.getElementById( 'vertexShader' ).textContent,
+            fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+
+        } );
+
+        var mesh = new THREE.Mesh( geometry, customDepthMaterial );
+        scene.add( mesh );
     }
 
     function initStats() {
@@ -114,7 +314,58 @@
         //将设置属性添加到gui当中，gui.add(对象，属性，最小值，最大值）
     }
 
+
+    var previousTime = new Date().getTime();
+
+    // Start a bit into the simulation so that we skip the wall of fire
+    // that forms at the beginning. To see what I mean set this value to
+    // zero seconds, instead of the current 3 seconds
+    var clockTime = 3;
+
+    // Our first flame's position is at the world origin and it is red
+    var redFirePos = [0.0, 0.0, 0.0];
+    var redFireColor = [0.8, 0.25, 0.25, 1.0];
+
+    // Our second flame is 0.5 units to the right of the first flame
+    // and is purple
+    var purpFirePos = [0.5, 0.0, 0.0];
+    var purpFireColor = [0.25, 0.25, 8.25, 1.0];
+
     function render() {
+
+        var currentTime = new Date().getTime();
+        clockTime += (currentTime - previousTime) / 1000;
+        previousTime = currentTime;
+
+        // 将当前时间传递到我们的顶点和片元着色器
+        uniforms.uTime = {value: clockTime};
+        uniforms.uTimeFrag = {value: clockTime};
+        // 我们将第一片火焰的位置传递到顶点着色器中
+        uniforms.uFirePos = {value: redFirePos};
+//        uniforms.uPMatrix = {values: {values: clockTime}};
+        // 将世界视图矩阵传递到顶点着色器中
+        uniforms.uViewMatrix = {value: camera.lookAt(redFirePos)};
+        uniforms.uColor = {value: redFireColor};
+//        uniforms.uFireAtlas = {values: {values: redFireColor}};
+        // 设置是否使用这个标牌
+        uniforms.uUseBillboarding = {value: false};
+
+//        // We pass information specific to our first flame into our vertex shader
+//        // and then draw our first flame.
+//        gl.uniform3fv(firePosUni, redFirePos);
+//        gl.uniform4fv(colorUni, redFireColor);
+//        // What does numParticles * 6 mean?
+//        //  For each particle there are two triangles drawn (to form the square)
+//        //  The first triangle has 3 vertices and the second triangle has 3 vertices
+//        //  making for a total of 6 vertices per particle.
+//        gl.drawElements(gl.TRIANGLES, numParticles * 6, gl.UNSIGNED_SHORT, 0)
+//
+//        // We pass information specific to our second flame into our vertex shader
+//        // and then draw our second flame.
+//        gl.uniform3fv(firePosUni, purpFirePos)
+//        gl.uniform4fv(colorUni, purpFireColor)
+//        gl.drawElements(gl.TRIANGLES, numParticles * 6, gl.UNSIGNED_SHORT, 0)
+
         renderer.render(scene, camera);
     }
 
